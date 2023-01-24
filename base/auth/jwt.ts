@@ -11,6 +11,7 @@ export interface JWTInput {
   client_secret?: string;
   refresh_token?: string;
   quota_project_id?: string;
+  scopes?: string[];
 }
 
 export class JWT implements CredentialsClient {
@@ -19,17 +20,20 @@ export class JWT implements CredentialsClient {
   #privateKeyId: string | undefined;
   #privateKeyString: string;
   #privateKey: Promise<jose.KeyLike> | undefined;
+  #scopes: string[] | undefined;
 
   constructor(
     projectId: string | undefined,
     clientEmail: string,
     privateKeyId: string | undefined,
     privateKeyString: string,
+    scopes: string[] | undefined,
   ) {
     this.#projectId = projectId;
     this.#clientEmail = clientEmail;
     this.#privateKeyId = privateKeyId;
     this.#privateKeyString = privateKeyString;
+    this.#scopes = scopes;
   }
 
   static fromJSON(json: JWTInput) {
@@ -54,6 +58,7 @@ export class JWT implements CredentialsClient {
       json.client_email,
       json.private_key_id,
       json.private_key,
+      json.scopes,
     );
   }
 
@@ -61,9 +66,18 @@ export class JWT implements CredentialsClient {
     return this.#projectId;
   }
 
+  get scopes() {
+    return this.#scopes;
+  }
+
+  set scopes(val: string[] | undefined) {
+    this.#scopes = val;
+  }
+
   async getRequestHeaders(url: string): Promise<Record<string, string>> {
     const aud = new URL(url).origin + "/";
-    const jwt = await this.#getJWT(aud);
+    const scope = this.#scopes?.join(' ');
+    const jwt = await this.#getJWT(aud, scope);
     return {
       "Authorization": `Bearer ${jwt}`,
     };
@@ -76,9 +90,10 @@ export class JWT implements CredentialsClient {
     return this.#privateKey;
   }
 
-  async #getJWT(aud: string) {
+  async #getJWT(aud: string, scope?: string) {
     const key = await this.#getPrivateKey();
-    return new jose.SignJWT({ aud })
+    const payload = scope ? { aud, scope } : { aud };
+    return new jose.SignJWT(payload)
       .setProtectedHeader({ alg: "RS256", kid: this.#privateKeyId })
       .setIssuer(this.#clientEmail)
       .setSubject(this.#clientEmail)
